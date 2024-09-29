@@ -77,12 +77,11 @@ func (s *APIServer) Run() {
 
 	r.Handle("/sync", s.JwtAuth(http.HandlerFunc(s.SyncHandler))).Methods("POST")
 
-	fmt.Printf("Server listening on port %v\n", s.ListenPort)
+	log.Printf("Server listening on port %v\n", s.ListenPort)
 	if err := http.ListenAndServe(s.ListenPort, r); err != nil {
 		panic(err)
 	}
 }
-
 
 // LoadBackupHandler loads a backup from a file or multipart form data
 // @Summary Load a backup
@@ -103,9 +102,9 @@ func (s *APIServer) LoadBackupHandler(w http.ResponseWriter, r *http.Request) {
 	// unzip backup to mcdata/
 	// start the server
 	var returnData any
-	doesExist, _ := exists("backups")
+	doesExist, _ := exists(s.backupService.backupPath)
 	if !doesExist {
-		if err := os.Mkdir("backups", os.FileMode(0755)); err != nil {
+		if err := os.Mkdir(s.backupService.backupPath, os.FileMode(0755)); err != nil {
 			log.Println("cannot create directory", err)
 			WriteJSON(w, messageToJSON(http.StatusInternalServerError, err.Error(), nil))
 			return
@@ -318,12 +317,12 @@ func (s *APIServer) BackupHandler(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) DeleteBackupHandler(w http.ResponseWriter, r *http.Request) {
 	backupToDelete := r.URL.Query().Get("delete")
 
-	if fileExists, _ := exists(fmt.Sprintf("backups/%s", backupToDelete)); !fileExists {
+	if fileExists, _ := exists(fmt.Sprintf("%s/%s", s.backupService.backupPath, backupToDelete)); !fileExists {
 		WriteJSON(w, messageToJSON(http.StatusInternalServerError, "backup file does not exist", nil))
 		return
 	}
 
-	fileSize, err := getFileSize(fmt.Sprintf("backups/%s", backupToDelete))
+	fileSize, err := getFileSize(fmt.Sprintf("%s/%s", s.backupService.backupPath, backupToDelete))
 	if err != nil {
 		log.Println(err)
 		WriteJSON(w, messageToJSON(http.StatusInternalServerError, "failed getting file size", nil))
@@ -331,7 +330,7 @@ func (s *APIServer) DeleteBackupHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	start := time.Now()
-	removePath := fmt.Sprintf("backups/%s", backupToDelete)
+	removePath := fmt.Sprintf("%s/%s", s.backupService.backupPath, backupToDelete)
 	if err := os.Remove(removePath); err != nil {
 		log.Println(err)
 		WriteJSON(w, messageToJSON(http.StatusInternalServerError, "failed removing backup file", nil))
