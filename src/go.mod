@@ -1,6 +1,6 @@
-module main
+module github.com/bobak-labs/mcmgmt-api
 
-go 1.23
+go 1.23.0
 
 require (
 	cloud.google.com/go/storage v1.43.0
@@ -12,7 +12,7 @@ require (
 	google.golang.org/api v0.194.0
 )
 
-require github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be // indirect
+require github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 
 require (
 	cloud.google.com/go v0.115.1 // indirect
@@ -44,8 +44,8 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/swaggo/files v0.0.0-20220610200504-28940afbdbfe // indirect
-	github.com/swaggo/http-swagger v1.3.4 // indirect
-	github.com/swaggo/swag v1.8.1 // indirect
+	github.com/swaggo/http-swagger v1.3.4
+	github.com/swaggo/swag v1.8.1
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.53.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.53.0 // indirect

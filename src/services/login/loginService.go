@@ -1,4 +1,4 @@
-package main
+package login
 
 import (
 	"errors"
@@ -8,15 +8,12 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-type LoginService struct {
-	jwtSecret []byte
-}
-
 func NewLoginService(jwtSecret string) *LoginService {
 	return &LoginService{
-		jwtSecret: []byte(jwtSecret),
+		JwtSecret: []byte(jwtSecret),
 	}
 }
+
 func (ls *LoginService) Login(username, password string) (*string, *time.Time, error) {
 
 	if username != os.Getenv("ADMIN_USER") || password != os.Getenv("ADMIN_PASSWORD") {
@@ -30,7 +27,7 @@ func (ls *LoginService) Login(username, password string) (*string, *time.Time, e
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(ls.jwtSecret)
+	tokenString, err := token.SignedString(ls.JwtSecret)
 	if err != nil {
 		return nil, nil, err
 	}

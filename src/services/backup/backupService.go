@@ -1,4 +1,4 @@
-package main
+package backup
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	storage "cloud.google.com/go/storage"
+	util "github.com/bobak-labs/mcmgmt-api/lib"
 	"google.golang.org/api/iterator"
 )
 
@@ -32,14 +33,14 @@ func NewBucket(bucketName string, projectID, localBackupsPath string) (*Bucket, 
 }
 
 type BackupService struct {
-	bucket     *Bucket
-	backupPath string
+	Bucket     *Bucket
+	BackupPath string
 }
 
 func NewBackupService(bucket *Bucket, backupPath string) *BackupService {
 	return &BackupService{
-		bucket:     bucket,
-		backupPath: backupPath,
+		Bucket:     bucket,
+		BackupPath: backupPath,
 	}
 }
 
@@ -125,7 +126,7 @@ func (b *Bucket) CreateGCSBucket() error {
 	buckets := client.Buckets(ctx, b.ProjectID)
 	for {
 		if b.Name == "" {
-			return fmt.Errorf("BucketName entered is empty %v.", b.Name)
+			return fmt.Errorf("bucket name entered is empty %v", b.Name)
 		}
 		attrs, err := buckets.Next()
 		// Assume bucket not found if at Iterator end and create
@@ -137,7 +138,7 @@ func (b *Bucket) CreateGCSBucket() error {
 					Enabled: true, // Enforces access control uniformly
 				},
 			}); err != nil {
-				return fmt.Errorf("Failed to create bucket: %v", err)
+				return fmt.Errorf("failed to create bucket: %v", err)
 			}
 
 			log.Printf("Bucket %v created.\n", b.Name)
@@ -261,26 +262,26 @@ func (b *Bucket) BucketExists(ctx context.Context, client *storage.Client) bool 
 }
 
 func (bs *BackupService) Sync() (*[]BackupData, error) {
-	if bs.bucket.ProjectID == "" || bs.bucket.Name == "" {
+	if bs.Bucket.ProjectID == "" || bs.Bucket.Name == "" {
 		return nil, errors.New("synchronization bucket information not complete")
 	}
 
-	backupsOnDisk, err := GetAvailableLocalBackups(fmt.Sprintf("%s/", bs.backupPath))
+	backupsOnDisk, err := util.GetAvailableLocalBackups(fmt.Sprintf("%s/", bs.BackupPath))
 	if err != nil {
 		return nil, err
 	}
 
-	if err := bs.bucket.CreateGCSBucket(); err != nil {
+	if err := bs.Bucket.CreateGCSBucket(); err != nil {
 		return nil, err
 	}
 
-	backupsOnCloud, err := bs.bucket.RetrieveObjectsInBucket(context.Background())
+	backupsOnCloud, err := bs.Bucket.RetrieveObjectsInBucket(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	backupsMissingOnCloud := stringArrayDiff(backupsOnCloud, backupsOnDisk)
-	backupsMissingOnDisk := stringArrayDiff(backupsOnDisk, backupsOnCloud)
+	backupsMissingOnCloud := util.StringArrayDiff(backupsOnCloud, backupsOnDisk)
+	backupsMissingOnDisk := util.StringArrayDiff(backupsOnDisk, backupsOnCloud)
 
 	var backupDataList []BackupData
 
@@ -297,7 +298,7 @@ func (bs *BackupService) Sync() (*[]BackupData, error) {
 		uploadDuration := time.Duration(float64(0))
 
 		now := time.Now()
-		backupData := NewBackupData(bs.bucket, fileName, float64(sizeFromCloud), &uploadDuration, &downloadDuration, &now)
+		backupData := NewBackupData(bs.Bucket, fileName, float64(sizeFromCloud), &uploadDuration, &downloadDuration, &now)
 		backupDataList = append(backupDataList, *backupData)
 	}
 
@@ -310,7 +311,7 @@ func (bs *BackupService) Sync() (*[]BackupData, error) {
 		downloadDuration := time.Duration(float64(0))
 
 		now := time.Now()
-		backupData := NewBackupData(bs.bucket, fileName, float64(sizeToCloud), &uploadDuration, &downloadDuration, &now)
+		backupData := NewBackupData(bs.Bucket, fileName, float64(sizeToCloud), &uploadDuration, &downloadDuration, &now)
 		backupDataList = append(backupDataList, *backupData)
 	}
 
@@ -319,11 +320,11 @@ func (bs *BackupService) Sync() (*[]BackupData, error) {
 
 func (bs *BackupService) UploadDataToCloud(backupsStrArr []string) error {
 	for _, backup := range backupsStrArr {
-		objectPath := fmt.Sprintf("%s/%s", bs.backupPath, backup)
+		objectPath := fmt.Sprintf("%s/%s", bs.BackupPath, backup)
 
 		// Check if the object already exists in GCS
 		log.Println("check if object exists", backup)
-		exists, err := bs.bucket.ObjectExists(backup)
+		exists, err := bs.Bucket.ObjectExists(backup)
 		if err != nil {
 			log.Printf("Error checking if object exists in GCS: %v", err)
 			return err
@@ -333,7 +334,7 @@ func (bs *BackupService) UploadDataToCloud(backupsStrArr []string) error {
 			continue
 		}
 		log.Printf("uploading file %s to GCS\n", backup)
-		if err := bs.bucket.UploadFileToGCS(objectPath); err != nil {
+		if err := bs.Bucket.UploadFileToGCS(objectPath); err != nil {
 			log.Println(err)
 			return err
 		}
@@ -346,11 +347,11 @@ func (bs *BackupService) UploadDataToCloud(backupsStrArr []string) error {
 func (bs *BackupService) UploadFileToCloud(backupName string) (time.Duration, int64, error) {
 	start := time.Now()
 
-	objectPath := fmt.Sprintf("%s/%s", bs.backupPath, backupName)
+	objectPath := fmt.Sprintf("%s/%s", bs.BackupPath, backupName)
 
 	// Check if the object already exists in GCS
 	log.Println("check if object exists", backupName)
-	exists, err := bs.bucket.ObjectExists(backupName)
+	exists, err := bs.Bucket.ObjectExists(backupName)
 	if err != nil {
 		log.Printf("Error checking if object exists in GCS: %v", err)
 		return 0, 0, err
@@ -360,14 +361,14 @@ func (bs *BackupService) UploadFileToCloud(backupName string) (time.Duration, in
 		return 0, 0, nil
 	}
 
-	filePath := fmt.Sprintf("%s/%s", bs.backupPath, backupName)
-	fileSize, err := getFileSize(filePath)
+	filePath := fmt.Sprintf("%s/%s", bs.BackupPath, backupName)
+	fileSize, err := util.GetFileSize(filePath)
 	if err != nil {
 		return 0, 0, err
 	}
 
 	log.Printf("uploading file %s to GCS\n", backupName)
-	if err := bs.bucket.UploadFileToGCS(objectPath); err != nil {
+	if err := bs.Bucket.UploadFileToGCS(objectPath); err != nil {
 		log.Println(err)
 		return 0, 0, err
 	}
@@ -382,15 +383,15 @@ func (bs *BackupService) UploadFileToCloud(backupName string) (time.Duration, in
 
 func (bs *BackupService) DownloadDataFromCloud(backupsInCloud []string) error {
 	log.Println("getting available backups from disk")
-	backupsOnDisk, err := GetAvailableLocalBackups(bs.backupPath)
+	backupsOnDisk, err := util.GetAvailableLocalBackups(bs.BackupPath)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
 	for _, backup := range backupsInCloud {
-		if !contains(backupsOnDisk, backup) {
+		if !util.Contains(backupsOnDisk, backup) {
 			log.Printf("downloading backup %s from cloud", backup)
-			if err := bs.bucket.DownloadDataFromBucket(context.Background(), backup); err != nil {
+			if err := bs.Bucket.DownloadDataFromBucket(context.Background(), backup); err != nil {
 				log.Println(err)
 				return err
 			}
@@ -405,16 +406,16 @@ func (bs *BackupService) DownloadFileFromCloud(backup string) (time.Duration, in
 	start := time.Now()
 
 	log.Println("getting available backups from disk")
-	backupsOnDisk, err := GetAvailableLocalBackups(bs.backupPath + "/")
+	backupsOnDisk, err := util.GetAvailableLocalBackups(bs.BackupPath + "/")
 	if err != nil {
 		log.Println(err)
 		return 0, 0, err
 	}
 
 	var exists bool
-	if !contains(backupsOnDisk, backup) {
+	if !util.Contains(backupsOnDisk, backup) {
 		log.Printf("downloading backup %s from cloud", backup)
-		if err := bs.bucket.DownloadDataFromBucket(context.Background(), backup); err != nil {
+		if err := bs.Bucket.DownloadDataFromBucket(context.Background(), backup); err != nil {
 			log.Println(err)
 			return 0, 0, err
 		}
@@ -424,8 +425,8 @@ func (bs *BackupService) DownloadFileFromCloud(backup string) (time.Duration, in
 	}
 
 	duration := time.Since(start)
-	filePath := fmt.Sprintf("%s/%s", bs.backupPath, backup)
-	fileSize, err := getFileSize(filePath)
+	filePath := fmt.Sprintf("%s/%s", bs.BackupPath, backup)
+	fileSize, err := util.GetFileSize(filePath)
 	if err != nil {
 		return duration, 0, err
 	}
@@ -436,9 +437,38 @@ func (bs *BackupService) DownloadFileFromCloud(backup string) (time.Duration, in
 	return duration, fileSize, nil
 }
 
-func (bs *BackupService) UploadBackupMultipart(progressReader *ProgressReader, fileName string) (*BackupData, error) {
+func (bs *BackupService) DeleteLocalBackup(backupToDelete string) (*BackupData, error) {
+	if fileExists, err := util.Exists(fmt.Sprintf("%s/%s", bs.BackupPath, backupToDelete)); !fileExists {
+		// WriteJSON(w, MessageToJSON(http.StatusInternalServerError, "backup file does not exist", nil))
+		return nil, err
+	}
+
+	fileSize, err := util.GetFileSize(fmt.Sprintf("%s/%s", bs.BackupPath, backupToDelete))
+	if err != nil {
+		log.Println(err)
+		// WriteJSON(w, MessageToJSON(http.StatusInternalServerError, "failed getting file size", nil))
+		return nil, err
+	}
+
+	start := time.Now()
+	removePath := fmt.Sprintf("%s/%s", bs.BackupPath, backupToDelete)
+	if err := os.Remove(removePath); err != nil {
+		log.Println(err)
+		// WriteJSON(w, MessageToJSON(http.StatusInternalServerError, "failed removing backup file", nil))
+		return nil, err
+	}
+
+	deleteTime := time.Since(start)
+	uploadTime := time.Duration(0)
+	fileSizeFloat := float64(fileSize)
+
+	backupData := NewBackupData(&Bucket{}, backupToDelete, fileSizeFloat, &deleteTime, &uploadTime, &start)
+
+	return backupData, nil
+}
+func (bs *BackupService) UploadBackupMultipart(progressReader *util.ProgressReader, fileName string) (*BackupData, error) {
 	// Create the "backups/" directory if it doesn't exist
-	backupDir := bs.backupPath
+	backupDir := bs.BackupPath
 	fmt.Println(backupDir)
 	if err := os.MkdirAll(backupDir, os.ModePerm); err != nil {
 		return nil, err
@@ -468,7 +498,7 @@ func (bs *BackupService) UploadBackupMultipart(progressReader *ProgressReader, f
 
 func (bs *BackupService) LoadBackupChooseFile(file multipart.File, backupPath string) (*BackupData, error) {
 
-	backupDir := bs.backupPath
+	backupDir := bs.BackupPath
 	if err := os.MkdirAll(backupDir, os.ModePerm); err != nil {
 		return nil, err
 	}
@@ -503,7 +533,7 @@ func (bs *BackupService) LoadBackupChooseFile(file multipart.File, backupPath st
 
 func (bs *BackupService) LoadBackupFromDisk(backupFile string) (*BackupData, error) {
 
-	backups := bs.backupPath
+	backups := bs.BackupPath
 	log.Println("loading new backup initiated")
 	currentTime := time.Now()
 
@@ -511,17 +541,17 @@ func (bs *BackupService) LoadBackupFromDisk(backupFile string) (*BackupData, err
 
 	fileName := fmt.Sprintf("%s_%s.zip", "mcdata", formattedTime)
 
-	if err := zipit("mcdata", backups+"/"+fileName, false); err != nil {
+	if err := util.Zipit("mcdata", backups+"/"+fileName, false); err != nil {
 		log.Println(err)
 		return nil, err
 	}
 
-	if err := removeAllFilesInDir("mcdata"); err != nil {
+	if err := util.RemoveAllFilesInDir("mcdata"); err != nil {
 		log.Println(err)
 		return nil, err
 	}
 
-	if err := unzip(fmt.Sprintf("%s/%s", backups, backupFile), "mcdata"); err != nil {
+	if err := util.Unzip(fmt.Sprintf("%s/%s", backups, backupFile), "mcdata"); err != nil {
 		log.Println(err)
 		return nil, err
 	}
@@ -529,7 +559,7 @@ func (bs *BackupService) LoadBackupFromDisk(backupFile string) (*BackupData, err
 	downloadTime := time.Duration(0)
 	uploadTime := time.Since(currentTime)
 	now := time.Now()
-	fileSize, err := getFileSize(fmt.Sprintf("%s/%s", backups, fileName))
+	fileSize, err := util.GetFileSize(fmt.Sprintf("%s/%s", backups, fileName))
 	if err != nil {
 		return nil, err
 	}
@@ -538,8 +568,8 @@ func (bs *BackupService) LoadBackupFromDisk(backupFile string) (*BackupData, err
 }
 
 func (bs *BackupService) GetBackups() ([]string, error) {
-	backupPath := bs.backupPath
-	backups, err := GetAvailableLocalBackups(backupPath)
+	backupPath := bs.BackupPath
+	backups, err := util.GetAvailableLocalBackups(backupPath)
 	if err != nil {
 		return nil, err
 	}
@@ -552,11 +582,11 @@ func (bs *BackupService) Backup(backupName string) (*BackupData, error) {
 	formattedTime := currentTime.Format("20060102_150405")
 	fileName := fmt.Sprintf("%s_%s.zip", backupName, formattedTime)
 
-	if err := zipit("mcdata", bs.backupPath+"/"+fileName, false); err != nil {
+	if err := util.Zipit("mcdata", bs.BackupPath+"/"+fileName, false); err != nil {
 		return nil, err
 	}
 	duration := time.Since(currentTime)
-	size, err := getFileSize(fmt.Sprintf("%s/%s", bs.backupPath, fileName))
+	size, err := util.GetFileSize(fmt.Sprintf("%s/%s", bs.BackupPath, fileName))
 	if err != nil {
 		return nil, err
 	}

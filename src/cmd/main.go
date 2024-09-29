@@ -7,6 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
+	api "github.com/bobak-labs/mcmgmt-api/api"
+	util "github.com/bobak-labs/mcmgmt-api/lib"
+	backups "github.com/bobak-labs/mcmgmt-api/services/backup"
+	login "github.com/bobak-labs/mcmgmt-api/services/login"
 	"github.com/common-nighthawk/go-figure"
 )
 
@@ -24,9 +28,28 @@ func main() {
 	fig2.Print()
 	fmt.Println("================================================================================================================")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		flag.PrintDefaults() // prints the default flags
-		os.Exit(0)           // exit after showing help
+		var flags []flag.Flag
+		var flagsStr string
+
+		// Iterate over all flags and append them to the slice
+		flag.VisitAll(func(f *flag.Flag) {
+			flags = append(flags, *f) // De-reference and add flag to slice
+		})
+
+		for _, f := range flags {
+			flagsStr += fmt.Sprintf("--%s, ", f.Name)
+		}
+
+		fmt.Fprintf(os.Stderr, "mcmgmt-api - web application for managing minecraft server.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "Available options: [%v]\n\n", flagsStr[:len(flagsStr)-2])
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		// Print each flag in a custom format
+		flag.VisitAll(func(f *flag.Flag) {
+			fmt.Fprintf(os.Stderr, "  --%s/-%s (default value=%v): \n\t%s\n\n\n", f.Name, f.Name, f.DefValue, f.Usage)
+		})
+		fmt.Fprintf(os.Stderr, "  --help/-help: \n\tShows help menu\n\n\n")
+		os.Exit(0) // exit after showing help
 	}
 
 	execPath, err := os.Executable()
@@ -44,18 +67,18 @@ func main() {
 	defaultMemory := 4                                      // in gigabytes
 
 	listenport := flag.Int("lp", 7777, "api server listen port")
-	backuppath := flag.String("backups", defaultBackupPath, "path where server backups are stored\n\nIMPORTANT: any parent directory specified must exist.\nExample:\n  - if you want to store backups in /etc/minecraft/backups, directory /etc/minecraft MUST EXIST\n")
-	serverfiles := flag.String("server-files", defaultServerFilesPath, "path where server files are stored\n\nIMPORTANT: any parent directory specified must exist.\nExample:\n  - if you want to store backups in /etc/minecraft/serverfiles, directory /etc/minecraft MUST EXIST\n")
-	trustedpath := flag.String("trusted-path", trustedPath, "boundary path to which user can traverse specifying backup/server directories")
-	memory := flag.Int64("memory", int64(defaultMemory), "memory for the minecraft server in GB")
+	backuppath := flag.String("backups", defaultBackupPath, "Path where server backups are stored, any parent directory specified must exist.\n\tExample: If you want to store backups in /etc/minecraft/backups, directory /etc/minecraft MUST EXIST.")
+	serverfiles := flag.String("server-files", defaultServerFilesPath, "Path where server files are stored. Any parent directory specified must exist.\n\tExample: If you want to store backups in /etc/minecraft/serverfiles, directory /etc/minecraft MUST EXIST.")
+	trustedpath := flag.String("trusted-path", trustedPath, "Boundary path to which user can traverse specifying backup/server directories.")
+	memory := flag.Int64("memory", int64(defaultMemory), "Memory for the minecraft server in gigabytes (GB).")
 
 	flag.Parse()
 
 	log.Printf("Started mcmgmt-api binary with PID %v\n", os.Getpid())
-	log.Println("default backup path: ", defaultBackupPath)
-	log.Println("default server files path: ", defaultServerFilesPath)
-	log.Println("default memory path: ", defaultMemory)
-	log.Println("default trusted path: ", trustedPath)
+	log.Println("default backup path:", defaultBackupPath)
+	log.Println("default server files path:", defaultServerFilesPath)
+	log.Println("default memory in gigabytes:", defaultMemory)
+	log.Println("default trusted path:", trustedPath)
 
 	// server params
 	listenPort := fmt.Sprintf(":%d", *listenport)
@@ -69,6 +92,10 @@ func main() {
 	}
 
 	trustedPath = *trustedpath
+
+	flag.Visit(func(f *flag.Flag) {
+		log.Printf("flag: %s overriden to: %s\n", f.Name, f.Value.String())
+	})
 
 	// fmt.Println(listenPort, backupBindPath, serverFilesBindPath)
 	backupPath, err := verifyPath(trustedPath, backupBindPath)
@@ -87,7 +114,7 @@ func main() {
 
 	// container params
 	img := "itzg/minecraft-server"
-	cn := fmt.Sprintf("mcserver-%s", randomString(9))
+	cn := fmt.Sprintf("mcserver-%s", util.RandomString(9))
 
 	// needed envs
 	secret := os.Getenv("JWT_SECRET")
@@ -99,7 +126,7 @@ func main() {
 	logPath := fmt.Sprintf("%v/mcdata/logs/latest.log", serverFilesPath)
 
 	// create login service
-	loginSvc := NewLoginService(secret)
+	loginSvc := login.NewLoginService(secret)
 
 	// create runner
 	runner := InitRunner(img, cn, serverFilesPath, *memory)
@@ -110,9 +137,9 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	backupSvc := NewBackupService(bucket, backupPath)
+	backupSvc := backups.NewBackupService(bucket, backupPath)
 
 	// create API server instance
-	server := NewAPIServer(listenPort, logPath, loginSvc, runner, backupSvc, secret)
+	server := api.NewAPIServer(listenPort, logPath, loginSvc, runner, backupSvc, secret)
 	server.Run()
 }
