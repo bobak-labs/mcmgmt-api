@@ -5,6 +5,8 @@ import (
 	"log"
 	"math/rand/v2"
 
+	backups "github.com/bobak-labs/mcmgmt-api/services/backup"
+	containers "github.com/bobak-labs/mcmgmt-api/services/container"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -12,8 +14,8 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func InitBucket(bucketName, projectID, localBackupPath string) (*Bucket, error) {
-	bucket, err := NewBucket(bucketName, projectID, localBackupPath)
+func InitBucket(bucketName, projectID, localBackupPath string) (*backups.Bucket, error) {
+	bucket, err := backups.NewBucket(bucketName, projectID, localBackupPath)
 	if err != nil {
 		log.Fatalln(err)
 		return nil, err
@@ -22,7 +24,7 @@ func InitBucket(bucketName, projectID, localBackupPath string) (*Bucket, error) 
 	return bucket, nil
 }
 
-func InitRunner(containerImage, containerName, serverFilesPath string, memory int64) *ContainerService {
+func InitRunner(containerImage, containerName, serverFilesPath string, memory int64) *containers.ContainerService {
 	totalMemory := memory * 1024 * 1024 * 1024
 
 	img := containerImage
@@ -78,7 +80,7 @@ func InitRunner(containerImage, containerName, serverFilesPath string, memory in
 		hostconf.AutoRemove = true
 	}
 
-	runner := NewContainerRunner(
+	runner := containers.NewContainerRunner(
 		img,
 		cn,
 		networkName,

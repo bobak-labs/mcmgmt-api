@@ -1,19 +1,15 @@
-package main
+package lib
 
 import (
 	"archive/zip"
 	"bufio"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"golang.org/x/exp/rand"
@@ -24,91 +20,7 @@ const (
 	digitBytes  = "0123456789"
 )
 
-func inTrustedRoot(path string, trustedRoot string) error {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return errors.New("error determining absolute path")
-	}
-
-	// Ensure the resolved path starts with the trusted root
-	if !filepath.HasPrefix(absPath, trustedRoot) {
-		return errors.New("path is outside of trusted root")
-	}
-
-	return nil
-}
-
-// resolveAndCheckPath resolves the symlinks and checks if the parent directory is within the trusted root
-func resolveAndCheckPath(trustedPath string, path BindPath) (string, error) {
-	// Clean the path
-	cleanedPath := filepath.Clean(path.Path)
-	fullPath, err := filepath.Abs(cleanedPath)
-	if err != nil {
-		return fullPath, errors.New("cannot resolve full path")
-	}
-
-	// // Resolve symlinks for the parent directory
-	// parentDir := filepath.Dir(cleanedPath)
-	// resolvedParentDir, err := filepath.EvalSymlinks(parentDir)
-	// if err != nil {
-	// 	fmt.Println(resolvedParentDir)
-	// 	return cleanedPath, errors.New("error resolving symlinks for parent directory")
-	// }
-
-	// Verify if the resolved parent directory is within the trusted root
-	err = inTrustedRoot(fullPath, trustedPath)
-	if err != nil {
-		return cleanedPath, errors.New("path is outside of trusted root")
-	}
-
-	log.Printf("checking existence of %s path: %s\n", path.Label, fullPath)
-	// Check if the directory exists, and create it if not
-	err = createDirectoryIfNotExists(fullPath)
-	if err != nil {
-		return fullPath, err
-	}
-
-	if path.Label == "serverfiles" {
-		log.Printf("checking existence of minecraft data folder")
-		err = createDirectoryIfNotExists(fmt.Sprintf("%s/mcdata", fullPath))
-		if err != nil {
-			return fullPath, err
-		}
-	}
-	return fullPath, nil
-}
-
-// createDirectoryIfNotExists checks if the directory exists, and creates it if not
-func createDirectoryIfNotExists(path string) error {
-	// Check if the path exists
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// Directory does not exist, create it
-		err := os.MkdirAll(path, 0755) // 0755 is the permission mode for the directory
-		if err != nil {
-			return fmt.Errorf("failed to create directory: %s, error: %v", path, err)
-		}
-		log.Printf("created directory: %s\n", path)
-	} else if err != nil {
-		return fmt.Errorf("error checking directory: %s, error: %v", path, err)
-	}
-	return nil
-}
-
-// verifyPath checks if the path is valid based on the OS
-func verifyPath(trustedPath string, path BindPath) (string, error) {
-	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		log.Println("established trusted path to be: ", trustedPath)
-		return resolveAndCheckPath(trustedPath, path)
-	}
-
-	if runtime.GOOS == "windows" {
-		return path.Path, fmt.Errorf("unimplemented")
-	}
-
-	return path.Path, fmt.Errorf("runtime not implemented: %s", runtime.GOOS)
-}
-
-func randomString(n int) string {
+func RandomString(n int) string {
 	var sb strings.Builder
 	for i := 0; i < n; i++ {
 		if rand.Intn(2) == 0 { // 50% chance of letter, 50% chance of digit
@@ -120,7 +32,7 @@ func randomString(n int) string {
 	return sb.String()
 }
 
-func contains(slice []string, item string) bool {
+func Contains(slice []string, item string) bool {
 	for _, v := range slice {
 		if v == item {
 			return true
@@ -129,7 +41,7 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-func exists(path string) (bool, error) {
+func Exists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
 		return true, nil
@@ -140,7 +52,7 @@ func exists(path string) (bool, error) {
 	return false, err
 }
 
-func getFileSize(filePath string) (int64, error) {
+func GetFileSize(filePath string) (int64, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		return 0, err
@@ -148,7 +60,7 @@ func getFileSize(filePath string) (int64, error) {
 	return fileInfo.Size(), nil
 }
 
-func stringArrayDiff(arr1, arr2 []string) []string {
+func StringArrayDiff(arr1, arr2 []string) []string {
 	// Create a map to track the elements of arr1
 	elements := make(map[string]bool)
 	for _, item := range arr1 {
@@ -165,60 +77,6 @@ func stringArrayDiff(arr1, arr2 []string) []string {
 	}
 
 	return missing
-}
-
-// messageToJSON constructs the JSON response from the provided parameters
-func messageToJSON(status int, msg string, content any) JSONResponse {
-	return JSONResponse{
-		ResponseContent: content,
-		HTTPStatus:      status,
-		Message:         msg,
-	}
-}
-
-// WriteJSON writes the JSON response to the http.ResponseWriter
-func WriteJSON(w http.ResponseWriter, content JSONResponse) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(content.HTTPStatus)
-
-	// Convert the content to JSON and write to the response
-	if err := json.NewEncoder(w).Encode(content); err != nil {
-		http.Error(w, "Failed to encode JSON response", http.StatusInternalServerError)
-	}
-}
-
-// ProgressReader wraps an io.Reader to log the progress of reading data
-type ProgressReader struct {
-	Reader       io.Reader
-	TotalBytes   int64
-	LoggedBytes  int64
-	Logger       *log.Logger
-	NextLogPoint int64
-}
-
-// Read overrides the Read method to add progress logging
-func (p *ProgressReader) Read(b []byte) (int, error) {
-	n, err := p.Reader.Read(b)
-	if n > 0 {
-		p.LoggedBytes += int64(n)
-		percentage := float64(p.LoggedBytes) / float64(p.TotalBytes) * 100
-
-		if p.NextLogPoint == 0 {
-			p.NextLogPoint = 5
-		}
-
-		if percentage >= float64(p.NextLogPoint) {
-			p.Logger.Printf("Uploaded %.0f%%", percentage)
-			p.NextLogPoint += 5
-		}
-	}
-
-	return n, err
-}
-
-type BackupTemplateData struct {
-	Backups      []string
-	CloudBackups []string
 }
 
 func GetAvailableLocalBackups(backupPath string) ([]string, error) {
@@ -244,7 +102,7 @@ func GetAvailableLocalBackups(backupPath string) ([]string, error) {
 }
 
 // src code credits: https://gist.github.com/yhirose/addb8d248825d373095c
-func zipit(source, target string, needBaseDir bool) error {
+func Zipit(source, target string, needBaseDir bool) error {
 	zipfile, err := os.Create(target)
 	if err != nil {
 		return err
@@ -316,7 +174,7 @@ func zipit(source, target string, needBaseDir bool) error {
 	return err
 }
 
-func unzip(archive, target string) error {
+func Unzip(archive, target string) error {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
 		return err
@@ -354,7 +212,7 @@ func unzip(archive, target string) error {
 	return nil
 }
 
-func removeAllFilesInDir(dir string) error {
+func RemoveAllFilesInDir(dir string) error {
 	// Get a list of all files in the directory
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -378,7 +236,7 @@ func removeAllFilesInDir(dir string) error {
 	return nil
 }
 
-func GetMcServerLogs(filename string) ([]string, error) {
+func ReadLinesFromFile(filename string) ([]string, error) {
 	content, err := ReadLines(filename)
 	if err != nil {
 		log.Println("errors reading logs")
