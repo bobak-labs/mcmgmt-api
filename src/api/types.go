@@ -2,7 +2,7 @@ package api
 
 import (
 	"github.com/bobak-labs/mcmgmt-api/services/backup"
-	"github.com/bobak-labs/mcmgmt-api/services/container"
+	"github.com/bobak-labs/mcmgmt-api/services/executor"
 	login "github.com/bobak-labs/mcmgmt-api/services/login"
 )
 
@@ -27,21 +27,21 @@ type ServerConfig struct {
 
 type APIServer struct {
 	ServerConfig
-	containerService *container.ContainerService
-	backupService    *backup.BackupService
-	loginService     *login.LoginService
-	jwtSecret        []byte
+	executorService executor.ExecutorService
+	backupService   *backup.BackupService
+	loginService    *login.LoginService
+	jwtSecret       []byte
 }
 
-func NewAPIServer(lp string, logsPath string, loginSvc *login.LoginService, r *container.ContainerService, b *backup.BackupService, secret string) *APIServer {
+func NewAPIServer(lp string, logsPath string, loginSvc *login.LoginService, r executor.ExecutorService, b *backup.BackupService, secret string) *APIServer {
 	return &APIServer{
 		ServerConfig: ServerConfig{
 			ListenPort: lp,
 			LogsPath:   logsPath,
 		},
-		loginService:     loginSvc,
-		containerService: r,
-		backupService:    b,
-		jwtSecret:        []byte(secret),
+		loginService:    loginSvc,
+		executorService: r,
+		backupService:   b,
+		jwtSecret:       []byte(secret),
 	}
 }

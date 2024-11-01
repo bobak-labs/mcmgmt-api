@@ -6,7 +6,11 @@ import (
 	"math/rand/v2"
 
 	backups "github.com/bobak-labs/mcmgmt-api/services/backup"
-	containers "github.com/bobak-labs/mcmgmt-api/services/container"
+	"github.com/bobak-labs/mcmgmt-api/services/executor"
+	dockerexec "github.com/bobak-labs/mcmgmt-api/services/executor/docker"
+	k8sexec "github.com/bobak-labs/mcmgmt-api/services/executor/kubernetes"
+	nativeexec "github.com/bobak-labs/mcmgmt-api/services/executor/native"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -24,12 +28,27 @@ func InitBucket(bucketName, projectID, localBackupPath string) (*backups.Bucket,
 	return bucket, nil
 }
 
-func InitRunner(containerImage, containerName, serverFilesPath string, memory int64) *containers.ContainerService {
+func InitExecutorService(executorType, containerImage, containerName, serverFilesPath string, memory int64) executor.ExecutorService {
 	totalMemory := memory * 1024 * 1024 * 1024
 
-	img := containerImage
-	cn := containerName
+	var executor executor.ExecutorService
+	switch executorType {
+	case "native":
+		executor = InitNativeExecutor()
+	case "docker":
+		executor = InitDockerExecutor(containerImage, containerName, serverFilesPath, totalMemory)
+	case "kubernetes":
+		executor = InitKubernetesExecutor()
+	}
 
+	return executor
+}
+
+func InitNativeExecutor() executor.ExecutorService {
+	return &nativeexec.NativeExecutorService{}
+}
+
+func InitDockerExecutor(img, cn, serverFilesPath string, totalMemory int64) executor.ExecutorService {
 	ports, err := nat.NewPort("tcp", "25565-25565")
 	if err != nil {
 		panic(err)
@@ -80,7 +99,7 @@ func InitRunner(containerImage, containerName, serverFilesPath string, memory in
 		hostconf.AutoRemove = true
 	}
 
-	runner := containers.NewContainerRunner(
+	dockerExecutor := dockerexec.NewDockerExecutorService(
 		img,
 		cn,
 		networkName,
@@ -91,5 +110,9 @@ func InitRunner(containerImage, containerName, serverFilesPath string, memory in
 		pullopts,
 		startopts)
 
-	return runner
+	return dockerExecutor
+}
+
+func InitKubernetesExecutor() executor.ExecutorService {
+	return &k8sexec.KubernetesExecutorService{}
 }

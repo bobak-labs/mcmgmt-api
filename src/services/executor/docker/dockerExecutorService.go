@@ -1,4 +1,4 @@
-package container
+package docker
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/bobak-labs/mcmgmt-api/services/executor"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -16,7 +17,7 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-type ContainerService struct {
+type DockerExecutorService struct {
 	Image         string                      // image for a container
 	BuildMode     bool                        // build mode (if set to true -> container builds from Dockerfile)
 	ContainerName string                      // container name
@@ -31,7 +32,7 @@ type ContainerService struct {
 	StartOpts     types.ContainerStartOptions // start options
 }
 
-func NewContainerRunner(img string,
+func NewDockerExecutorService(img string,
 	cn string,
 	netname string,
 	conf container.Config,
@@ -39,8 +40,8 @@ func NewContainerRunner(img string,
 	netconf network.NetworkingConfig,
 	platform v1.Platform,
 	pullopts types.ImagePullOptions,
-	startopts types.ContainerStartOptions) *ContainerService {
-	return &ContainerService{
+	startopts types.ContainerStartOptions) *DockerExecutorService {
+	return &DockerExecutorService{
 		Image:         img,
 		ContainerName: cn,
 		NetworkName:   netname,
@@ -71,7 +72,7 @@ func NewContainerData(status string, config *container.Config, hostconf *contain
 	}
 }
 
-func (r *ContainerService) InitializeClient() error {
+func (r *DockerExecutorService) InitializeClient() error {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Printf("Pull error")
@@ -83,7 +84,7 @@ func (r *ContainerService) InitializeClient() error {
 	return nil
 }
 
-func (r *ContainerService) PullDockerImage() (io.ReadCloser, error) {
+func (r *DockerExecutorService) PullDockerImage() (io.ReadCloser, error) {
 
 	out, err := r.Client.ImagePull(r.Context, r.Image, r.PullOpts)
 	if err != nil {
@@ -97,14 +98,14 @@ func (r *ContainerService) PullDockerImage() (io.ReadCloser, error) {
 }
 
 // example usage
-// buildopts := types.ImageBuildOptions{
-// 	Tags:           []string{"my-image:latest"},
-// 	Dockerfile:     "path/to/Dockerfile",
-// 	Remove:         true,
-// 	ForceRemove:    true,
-// 	SuppressOutput: false,
-// }
-
+//
+//	buildopts := types.ImageBuildOptions{
+//		Tags:           []string{"my-image:latest"},
+//		Dockerfile:     "path/to/Dockerfile",
+//		Remove:         true,
+//		ForceRemove:    true,
+//		SuppressOutput: false,
+//	}
 func ExtractImageID(buildResponse types.ImageBuildResponse) (string, error) {
 	// Read the build response as JSON
 	buildResponseBytes, err := ioutil.ReadAll(buildResponse.Body)
@@ -124,14 +125,14 @@ func ExtractImageID(buildResponse types.ImageBuildResponse) (string, error) {
 	return buildAux.ID, nil
 }
 
-func (r *ContainerService) CreateNetwork() (types.NetworkCreateResponse, error) {
+func (r *DockerExecutorService) CreateNetwork() (types.NetworkCreateResponse, error) {
 	return r.Client.NetworkCreate(
 		r.Context,
 		r.NetworkName,
 		types.NetworkCreate{},
 	)
 }
-func (r *ContainerService) CreateContainer() (container.CreateResponse, error) {
+func (r *DockerExecutorService) CreateContainer() (container.CreateResponse, error) {
 	return r.Client.ContainerCreate(
 		r.Context,
 		&r.Config,
@@ -141,16 +142,17 @@ func (r *ContainerService) CreateContainer() (container.CreateResponse, error) {
 		r.ContainerName)
 }
 
-func (r *ContainerService) StartContainer(resp container.CreateResponse) error {
+func (r *DockerExecutorService) StartContainer(resp container.CreateResponse) error {
 	return r.Client.ContainerStart(r.Context, resp.ID, r.StartOpts)
 }
 
-func (r *ContainerService) Containerize() (*ContainerData, error) {
+func (r *DockerExecutorService) StartServer() (*executor.ExecutionResponse, error) {
 
 	if err := r.InitializeClient(); err != nil {
 		log.Printf("init client error")
 		log.Printf("Error initializing client %s\n", err)
-		return NewContainerData("client_init_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("client_init_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 	log.Printf("initialized client")
 
@@ -158,35 +160,40 @@ func (r *ContainerService) Containerize() (*ContainerData, error) {
 	if err != nil {
 		log.Println(out)
 		log.Printf("Error pulling image %s\n", err)
-		return NewContainerData("image_pull_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("image_pull_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 
 	netresp, err := r.CreateNetwork()
 	if err != nil {
 		log.Printf("Error creating network %s\n", err)
-		return NewContainerData("network_create_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("network_create_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 	log.Printf("Created network with name %v and ID: %v\n", r.NetworkName, netresp.ID)
 
 	resp, err := r.CreateContainer()
 	if err != nil {
 		log.Printf("Error creating container %s\n", err)
-		return NewContainerData("container_create_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("container_create_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 
 	if err := r.StartContainer(resp); err != nil {
 		log.Printf("Error starting container %s\n", err)
-		return NewContainerData("container_start_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("container_start_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 	log.Printf("ID of created container: %s\n", resp.ID)
-
-	return NewContainerData("container_started", &r.Config, &r.HostConf, &r.NetConf), nil
+	response := NewContainerData("container_started", &r.Config, &r.HostConf, &r.NetConf)
+	return &executor.ExecutionResponse{Response: response}, nil
 }
 
-func (r *ContainerService) StopContainer() (*ContainerData, error) {
+func (r *DockerExecutorService) StopServer() (*executor.ExecutionResponse, error) {
 	if err := r.InitializeClient(); err != nil {
 		log.Printf("Error initializing client %s\n", err)
-		return NewContainerData("client_init_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("client_init_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 
 	noWaitTimeout := 0
@@ -199,25 +206,29 @@ func (r *ContainerService) StopContainer() (*ContainerData, error) {
 	containers, err := r.Client.ContainerList(r.Context, types.ContainerListOptions{Filters: containerFilters})
 	if err != nil {
 		log.Printf("Error listing containers %s\n", err)
-		return NewContainerData("container_list_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("container_list_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 	networks, err := r.Client.NetworkList(r.Context, types.NetworkListOptions{Filters: networkFilters})
 
 	if err != nil {
 		log.Printf("Error listing networks %s\n", err)
-		return NewContainerData("network_list_error", &r.Config, &r.HostConf, &r.NetConf), err
+		response := NewContainerData("network_list_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, err
 	}
 
 	if len(containers) == 0 && len(networks) == 0 {
 		log.Printf("Container does not exist\n")
-		return NewContainerData("container_does_not_exist_error", &r.Config, &r.HostConf, &r.NetConf), nil
+		response := NewContainerData("container_does_not_exist_error", &r.Config, &r.HostConf, &r.NetConf)
+		return &executor.ExecutionResponse{Response: response}, nil
 	}
 
 	if len(containers) == 1 {
 		log.Printf("container ID found: %s", containers[0].ID)
 		if err := r.Client.ContainerStop(r.Context, r.ContainerName, container.StopOptions{Timeout: &noWaitTimeout}); err != nil {
 			log.Printf("Error stopping container %s\n", err)
-			return NewContainerData("container_stop_error", &r.Config, &r.HostConf, &r.NetConf), err
+			response := NewContainerData("container_stop_error", &r.Config, &r.HostConf, &r.NetConf)
+			return &executor.ExecutionResponse{Response: response}, err
 		}
 		log.Printf("Success stopping container %s\n", r.ContainerName)
 
@@ -227,10 +238,15 @@ func (r *ContainerService) StopContainer() (*ContainerData, error) {
 		log.Printf("network ID found: %s", networks[0].ID)
 		if err := r.Client.NetworkRemove(r.Context, r.NetworkName); err != nil {
 			log.Printf("Error removing network %s\n", err)
-			return NewContainerData("network_remove_error", &r.Config, &r.HostConf, &r.NetConf), err
+			response := NewContainerData("network_remove_error", &r.Config, &r.HostConf, &r.NetConf)
+			return &executor.ExecutionResponse{Response: response}, err
 		}
 		log.Printf("Success removing network %s\n", r.NetworkName)
 	}
-	return NewContainerData("container_stopped", &r.Config, &r.HostConf, &r.NetConf), err
+	response := NewContainerData("container_stopped", &r.Config, &r.HostConf, &r.NetConf)
+	return &executor.ExecutionResponse{Response: response}, err
+}
 
+func (r *DockerExecutorService) GetStatus() (*executor.ExecutionResponse, error) {
+	return nil, nil
 }
