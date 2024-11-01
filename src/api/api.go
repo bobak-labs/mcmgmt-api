@@ -73,7 +73,7 @@ func (s *APIServer) LoadBackupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Stop the server container
-	if _, err := s.containerService.StopContainer(); err != nil {
+	if _, err := s.executorService.StopServer(); err != nil {
 		WriteJSON(w, MessageToJSON(http.StatusInternalServerError, err.Error(), nil))
 		return
 	}
@@ -133,7 +133,7 @@ func (s *APIServer) LoadBackupHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if _, err := s.containerService.Containerize(); err != nil {
+		if _, err := s.executorService.StartServer(); err != nil {
 			WriteJSON(w, MessageToJSON(http.StatusInternalServerError, "failed to start server", nil))
 			return
 		}
@@ -326,7 +326,7 @@ func (s *APIServer) LogsHandler(w http.ResponseWriter, r *http.Request) {
 // @Router /stop [post]
 func (s *APIServer) StopHandler(w http.ResponseWriter, r *http.Request) {
 
-	data, err := s.containerService.StopContainer()
+	data, err := s.executorService.StopServer()
 	if err != nil {
 		WriteJSON(w, MessageToJSON(http.StatusInternalServerError, "internal server error", nil))
 		return
@@ -346,7 +346,7 @@ func (s *APIServer) StopHandler(w http.ResponseWriter, r *http.Request) {
 // @Router /start [post]
 func (s *APIServer) StartHandler(w http.ResponseWriter, r *http.Request) {
 
-	data, err := s.containerService.Containerize()
+	data, err := s.executorService.StartServer()
 	if err != nil {
 		WriteJSON(w, MessageToJSON(http.StatusInternalServerError, "internal server error", data))
 		return
